@@ -62,7 +62,8 @@ github.property('profile', {
 });
 
 function strategy(callback) {
-  var GitHubStrategy = require('passport-github').Strategy;
+  var GitHubStrategy = require('passport-github').Strategy,
+      async = require('async');
   // Use the GitHubStrategy within Passport.
   //   Strategies in Passport require a `verify` function, which accept
   //   credentials (in this case, an accessToken, refreshToken, and GitHub
@@ -78,46 +79,86 @@ function strategy(callback) {
     process.nextTick(function () {
       if (!req.user) {
         logger.info('user is not logged in, authorizing with github');
-        github.get(profile.id, function(err, _github) {
-          if (err && (err.message === profile.id + " not found")) {
-            logger.info("profile.id not found. creating new github");
-            github.create({id: profile.id}, function(err, _github) {
-              if (err) { return done(err); }
-              logger.info("new github with id", _github.id, "created");
-              logger.info("since new github, creating new user");
-              user.create({github: _github.id}, function(err, _user) {
-                if (err) { return done(err); }
-                logger.info("new user with id", _user.id, "created");
-                logger.info("new user object", JSON.stringify(_user));
-                return done(null, _user);
-              });
-            });
-          } else if (err) {
-            return done(err);
-          } else {
-            logger.info("profile.id found, using associated github");
-            user.find({github: _github.id}, function(err, _users) {
-              if (err) { return done(err); }
-              if (_users.length > 1) {
-                // TODO merge multiple users with same github into one
-                return done(null, _user[0]);
+        async.waterfall([
+          // get github instance
+          function(callback) {
+            github.get(profile.id, function(err, _github) {
+              if (err && (err.message === profile.id + " not found")) {
+                logger.info("profile.id not found. creating new github");
+                github.create({
+                  id: profile.id,
+                  accessToken: accessToken,
+                  refreshToken: refreshToken,
+                  profile: profile
+                }, function(err, _github) {
+                  if (err) { return callback(err); }
+                  logger.info("new github with id", _github.id, "created");
+                  logger.info("new github object", JSON.stringify(_github));
+                  return callback(null, _github);
+                });
+              } else if (err) {
+                return callback(err);
+              } else {
+                logger.info("profile.id found, updating github info");
+                github.update({
+                  id: profile.id,
+                  accessToken: accessToken,
+                  refreshToken: refreshToken,
+                  profile: profile
+                }, function(err, _github) {
+                  if (err) { return callback(err); }
+                  return callback(null, _github);
+                });
               }
             });
-          }
-        });
+          },
+          // get user instance
+          function(_github, callback) {
+            logger.info("finding user with github profile.id");
+            user.find({github: _github.id}, function(err, _users) {
+              if (err) { return callback(err); }
+              else if (_users.length > 1) {
+                logger.info("multiple users with same github id found!");
+                // TODO merge multiple users with same github into one
+                return callback(null, _user[0]);
+              } else if (_users.length === 0) {
+                logger.info("user not found, creating new user");
+                user.create({github: _github.id}, function(err, _user) {
+                  if (err) { return callback(err); }
+                  logger.info("new user with id", _user.id, "created");
+                  logger.info("new user object", JSON.stringify(_user));
+                  return callback(null, _user);
+                });
+              } else {
+                logger.info("using existing user", _users[0].id);
+                return callback(null, _users[0]);
+              }
+            });
+          }],
+          // return user as auth
+          function(err, _user) {
+            if (err) { return done(err); }
+            return done(null, _user);
+          });
       } else {
         logger.info('user is logged in, associating github with user');
         var _user = req.user;
         github.get(profile.id, function(err, _github) {
           if (err && (err.message === profile.id + " not found")) {
             logger.info("profile.id not found. creating new github");
-            github.create({id: profile.id}, function(err, _github) {
-              logger.info("new github with id", _github.id, "created");
+            github.create({
+              id: profile.id,
+              accessToken: accessToken,
+              refreshToken: refreshToken,
+              profile: profile
+            }, function(err, _github) {
               if (err) { return done(err); }
+              logger.info("new github with id", _github.id, "created");
+              logger.info("new github object", JSON.stringify(_github));
               // associate new github with user
               _user['github'] = _github.id;
               // preserve the login state by returning the existing user
-              done(null, _user);
+              _user.save(done);
             });
           } else if (err) {
             return done(err);
@@ -126,7 +167,7 @@ function strategy(callback) {
             // associate new github with user
             _user['github'] = _github.id;
             // preserve the login state by returning the existing user
-            done(null, _user);
+            _user.save(done);
           }
         });
       }
@@ -138,18 +179,14 @@ github.method('strategy', strategy, {
 });
 
 function routes(options, callback) {
-  var authOrAuthz = function(req, res, next) {
-    if (!req.isAuthenticated()) {
-      auth.authenticate('github', {
-        successRedirect: '/',
-        failureRedirect: '/'
-      })(req, res, next);
-    } else {
-      auth.authorize('github')(req, res, next);
-    }
-  };
-  http.app.get('/auth/github', authOrAuthz);
-  http.app.get('/auth/github/callback', authOrAuthz);
+  http.app.get('/auth/github',
+    auth.authenticate('github'));
+  http.app.get('/auth/github/callback',
+    auth.authenticate('github', { failureRedirect: '/' }),
+    function(req, res) {
+      // Successful authentication, redirect home.
+      res.redirect('/');
+    });
   callback(null);
 }
 github.method('routes', routes, {
