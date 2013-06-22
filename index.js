@@ -68,7 +68,7 @@ function strategy(callback) {
   //   Strategies in Passport require a `verify` function, which accept
   //   credentials (in this case, an accessToken, refreshToken, and GitHub
   //   profile), and invoke a callback with a user object.
-  callback(null, new GitHubStrategy({
+  return callback(null, new GitHubStrategy({
     clientID: config.clientID,
     clientSecret: config.clientSecret,
     callbackURL: "http://localhost:8888/auth/github/callback",
@@ -187,7 +187,7 @@ function routes(options, callback) {
       // Successful authentication, redirect home.
       res.redirect('/');
     });
-  callback(null);
+  return callback(null);
 }
 github.method('routes', routes, {
   description: 'sets routes for github in app'
