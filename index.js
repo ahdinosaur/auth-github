@@ -87,106 +87,104 @@ function strategy(callback) {
   function(req, accessToken, refreshToken, profile, done) {
     // asynchronous verification, for effect...
     process.nextTick(function () {
-      if (!req.user) {
-        logger.info('user is not logged in, authorizing with github');
-        async.waterfall([
-          // get github instance
-          function(callback) {
-            github.get(profile.id, function(err, _github) {
-              if (err && (err.message === profile.id + " not found")) {
-                logger.info("profile.id not found. creating new github");
-                github.create({
-                  id: profile.id,
-                  credentials: {
-                    accessToken: accessToken,
-                    refreshToken: refreshToken
-                  },
-                  profile: profile
-                }, function(err, _github) {
-                  if (err) { return callback(err); }
-                  logger.info("new github with id", _github.id, "created");
-                  logger.info("new github object", JSON.stringify(_github));
-                  return callback(null, _github);
-                });
-              } else if (err) {
-                return callback(err);
-              } else {
-                logger.info("profile.id found, updating github info");
-                github.update({
-                  id: profile.id,
-                  credentials: {
-                    accessToken: accessToken,
-                    refreshToken: refreshToken
-                  },
-                  profile: profile
-                }, function(err, _github) {
-                  if (err) { return callback(err); }
-                  return callback(null, _github);
-                });
-              }
-            });
-          },
-          // get user instance
-          function(_github, callback) {
-            logger.info("finding user with github profile.id");
-            user.find({github: _github.id}, function(err, _users) {
-              if (err) { return callback(err); }
-              else if (_users.length > 1) {
-                logger.info("multiple users with same github id found!");
-                // TODO merge multiple users with same github into one
-                return callback(null, _user[0]);
-              } else if (_users.length === 0) {
-                logger.info("user not found, creating new user");
-                user.create({github: _github.id}, function(err, _user) {
-                  if (err) { return callback(err); }
-                  logger.info("new user with id", _user.id, "created");
-                  logger.info("new user object", JSON.stringify(_user));
-                  return callback(null, _user);
-                });
-              } else {
-                logger.info("using existing user", _users[0].id);
-                return callback(null, _users[0]);
-              }
-            });
-          }],
-          // return user as auth
-          function(err, _user) {
-            if (err) { return done(err); }
-            return done(null, _user);
+      async.waterfall([
+        // get github instance, or create if not already exist
+        function(callback) {
+          github.get(profile.id, function(err, _github) {
+            if (err && (err.message === profile.id + " not found")) {
+              logger.info("github id", profile.id, "not found. creating new github");
+              github.create({
+                id: profile.id,
+                credentials: {
+                  accessToken: accessToken,
+                  refreshToken: refreshToken
+                },
+                profile: profile
+              }, callback);
+            } else if (err) {
+              return callback(err);
+            } else {
+              logger.info("github id ", _github.id, "found");
+              github.update({
+                id: profile.id,
+                credentials: {
+                  accessToken: accessToken,
+                  refreshToken: refreshToken
+                },
+                profile: profile
+              }, callback);
+            }
           });
-      } else {
-        logger.info('user is logged in, associating github with user');
-        var _user = req.user;
-        github.get(profile.id, function(err, _github) {
-          if (err && (err.message === profile.id + " not found")) {
-            logger.info("profile.id not found. creating new github");
-            github.create({
-              id: profile.id,
-              credentials: {
-                accessToken: accessToken,
-                refreshToken: refreshToken
+        },
+        // log github object
+        function(_github, callback) {
+          logger.info("github object", JSON.stringify(_github));
+          callback(null, _github);
+        },
+        // associate github with user auth
+        function(_github, callback) {
+          var _user = req.user;
+          if (!_user) {
+            logger.info('user is not logged in');
+            async.waterfall([
+              // find auth instances with github id, or create none exist
+              function(callback) {
+                auth.find({github: _github.id}, function(err, _auths) {
+                  if (err) { return callback(err); }
+                  else if (_auths.length > 1) {
+                    logger.info("multiple auths with same github id found!");
+                    // TODO merge multiple auths with same github into one
+                    return callback(null, _auth[0]);
+                  } else if (_auths.length === 0) {
+                    logger.info("github id", _github.id, "not found in any auth. creating new auth");
+                    auth.create({github: _github.id}, callback);
+                  } else {
+                    logger.info("using existing auth", _auths[0].id);
+                    return callback(null, _auths[0]);
+                  }
+                });
               },
-              profile: profile
-            }, function(err, _github) {
-              if (err) { return done(err); }
-              logger.info("new github with id", _github.id, "created");
-              logger.info("new github object", JSON.stringify(_github));
-              // associate new github with user
-              _user['github'] = _github.id;
-              // preserve the login state by returning the existing user
-              _user.save(done);
-            });
-          } else if (err) {
-            return done(err);
+              // log auth object
+              function(_auth, callback) {
+                logger.info("auth object", JSON.stringify(_auth));
+                return callback(null, _auth);
+              },
+              // find user instance with auth id, or create if none exist
+              function(_auth, callback) {
+                logger.info("getting user with auth id");
+                user.get(_auth.id, function(err, _user) {
+                  if (err && (err.message === _auth.id + " not found")) {
+                    logger.info("user id", _auth.id, "not found. creating new user");
+                    user.create({id: _auth.id}, callback);
+                  } else if (err) {
+                    return callback(err);
+                  } else {
+                    logger.info("user id ", _user.id, "found");
+                    callback(null, _user);
+                  }
+                });
+              }],
+              // return user object to top waterfall
+              callback);
           } else {
-            logger.info("profile.id found. using existing github");
-            // associate new github with user
-            _user['github'] = _github.id;
-            // preserve the login state by returning the existing user
-            _user.save(done);
+            logger.info('user is logged in');
+            auth.get(_user.id, function(err, _auth) {
+              // TODO check for collisions here
+              // associate github with auth
+              _auth['github'] = _github.id;
+              // save auth instance
+              _auth.save(function(err, _auth) {
+                if (err) { return callback(err); }
+                // log auth object
+                logger.info("auth object", JSON.stringify(_auth));
+                // return user object to top waterfall
+                return callback(null, _user);
+              });
+            });
           }
-        });
-      }
+        }],
+        // end top waterfall
+        done);
     });
   }));
 }
