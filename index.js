@@ -49,16 +49,26 @@ github.method('start', start, {
   description: "starts github"
 });
 
-github.property('accessToken', {
-  description: 'access token of github auth'
-});
-
-github.property('refreshToken', {
-  description: 'access token of github auth'
+github.property('credentials', {
+  description: 'github credentials',
+  type: 'object',
+  properties: {
+    accessToken: {
+      description: 'access token of github auth',
+      type: 'string',
+      required: true
+    },
+    refreshToken: {
+      description: 'refresh token of github auth',
+      type: 'string',
+      required: false
+    }
+  }
 });
 
 github.property('profile', {
-  description: 'profile of github auth'
+  description: 'profile of github auth',
+  type: 'object'
 });
 
 function strategy(callback) {
@@ -87,8 +97,10 @@ function strategy(callback) {
                 logger.info("profile.id not found. creating new github");
                 github.create({
                   id: profile.id,
-                  accessToken: accessToken,
-                  refreshToken: refreshToken,
+                  credentials: {
+                    accessToken: accessToken,
+                    refreshToken: refreshToken
+                  },
                   profile: profile
                 }, function(err, _github) {
                   if (err) { return callback(err); }
@@ -102,8 +114,10 @@ function strategy(callback) {
                 logger.info("profile.id found, updating github info");
                 github.update({
                   id: profile.id,
-                  accessToken: accessToken,
-                  refreshToken: refreshToken,
+                  credentials: {
+                    accessToken: accessToken,
+                    refreshToken: refreshToken
+                  },
                   profile: profile
                 }, function(err, _github) {
                   if (err) { return callback(err); }
@@ -148,8 +162,10 @@ function strategy(callback) {
             logger.info("profile.id not found. creating new github");
             github.create({
               id: profile.id,
-              accessToken: accessToken,
-              refreshToken: refreshToken,
+              credentials: {
+                accessToken: accessToken,
+                refreshToken: refreshToken
+              },
               profile: profile
             }, function(err, _github) {
               if (err) { return done(err); }
