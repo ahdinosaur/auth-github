@@ -119,7 +119,7 @@ function strategy(callback) {
         // log github object
         function(_github, callback) {
           logger.info("github object", JSON.stringify(_github));
-          callback(null, _github);
+          return callback(null, _github);
         },
         // associate github with user auth
         function(_github, callback) {
@@ -160,7 +160,7 @@ function strategy(callback) {
                     return callback(err);
                   } else {
                     logger.info("user id ", _user.id, "found");
-                    callback(null, _user);
+                    return callback(null, _user);
                   }
                 });
               }],
