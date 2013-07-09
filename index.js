@@ -1,7 +1,7 @@
 var resource = require('resource'),
     logger = resource.logger,
     http = resource.use('http'),
-    config = resource.use('config')['auth-github'],
+    config = resource.use('config'),
     auth = resource.use('auth'),
     user = resource.use('user'),
     github = resource.define('auth-github');
@@ -79,8 +79,8 @@ function strategy(callback) {
   //   credentials (in this case, an accessToken, refreshToken, and GitHub
   //   profile), and invoke a callback with a user object.
   return callback(null, new GitHubStrategy({
-    clientID: config.clientID,
-    clientSecret: config.clientSecret,
+    clientID: config['auth-github'].clientID,
+    clientSecret: config['auth-github'].clientSecret,
     callbackURL: "http://localhost:8888/auth/github/callback",
     passReqToCallback: true
   },
